@@ -1,0 +1,41 @@
+version: "3.7"
+
+services:
+  db:
+    container_name: metabase-db
+    networks:
+      - metabase
+    ports:
+      - ${METABASE_POSTGRES_EXTERNAL_PORT:-5432}:5432
+    image: postgres:14-alpine
+    volumes:
+      # Persistence
+      - .data/db:/var/lib/postgresql/data/pgdata
+      # Logs
+      - .data/logs:/var/log/postgresql/
+    environment:
+      - POSTGRES_DB=${METABASE_POSTGRES_DB:-metabase}
+      - POSTGRES_USER=${METABASE_POSTGRES_USER:-metabase}
+      - POSTGRES_PASSWORD=${METABASE_POSTGRES_PASSWORD:-password}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    restart: always
+
+  app:
+    image: metabase/metabase:v0.47.12
+    container_name: metabase-app
+    environment:
+      - MB_DB_TYPE=postgres
+      - MB_DB_HOST=metabase-db
+      - MB_DB_PORT=5432
+      - MB_DB_DBNAME=${METABASE_POSTGRES_DB:-metabase}
+      - MB_DB_USER=${METABASE_POSTGRES_USER:-metabase}
+      - MB_DB_PASS=${METABASE_POSTGRES_PASSWORD:-password}
+    ports:
+      - ${METABASE_APP_EXTERNAL_PORT:-3000}:3000
+    networks:
+      - metabase
+    restart: unless-stopped
+
+networks:
+  metabase:
+    name: metabase
