@@ -1,0 +1,46 @@
+version: "3.7"
+
+services:
+  traefik:
+    image: traefik:2.11.0
+    command:
+      - "--log.level=DEBUG"
+      - "--api=true" # don't open API in production
+      - "--api.insecure=true" # don't use in production
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+
+      # `production` resolver (to actually create the SSL certificate)
+      - "--certificatesresolvers.production.acme.tlschallenge=true"
+      - "--certificatesresolvers.production.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.production.acme.storage=/letsencrypt/acme.json"
+
+      # `staging` resolver (test the creation of an SSL certificate)
+      - "--certificatesresolvers.staging.acme.tlschallenge=true"
+      - "--certificatesresolvers.staging.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.staging.acme.storage=/letsencrypt/acme-staging.json"
+      - "--certificatesresolvers.staging.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # Dashboard (don't expose in production)
+    volumes:
+      - traefik_data:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - traefik
+    restart: unless-stopped
+
+volumes:
+  traefik_data:
+    external: true
+
+networks:
+  traefik:
+    external: true
