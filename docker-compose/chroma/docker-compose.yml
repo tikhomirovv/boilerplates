@@ -1,0 +1,14 @@
+version: "3.7"
+
+services:
+  chroma:
+    image: chromadb/chroma:0.4.21
+    ports:
+      - "8000:8000"
+    volumes:
+      - .data/:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_AUTH_CREDENTIALS=${CHROMA_SERVER_AUTH_CREDENTIALS}
+      - CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER=${CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER}
+      - CHROMA_SERVER_AUTH_PROVIDER=${CHROMA_SERVER_AUTH_PROVIDER}
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-false}
