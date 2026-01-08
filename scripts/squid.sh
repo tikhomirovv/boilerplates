@@ -219,7 +219,7 @@ cache_dir ufs /var/spool/squid 100 16 256
 cache_mem 64 MB
 maximum_object_size_in_memory 512 KB
 
-# Logging
+# Logging (standard format includes username when authentication is enabled)
 access_log /var/log/squid/access.log squid
 cache_log /var/log/squid/cache.log
 
@@ -601,11 +601,13 @@ show_user_stats() {
     print_info "Statistics for user: $username"
     echo ""
 
-    # Count total requests
-    local total_requests=$(grep " ${username} " "$log_file" 2>/dev/null | wc -l | tr -d ' ')
+    # Count total requests (username can appear anywhere in the line)
+    local total_requests=$(grep -c " ${username} " "$log_file" 2>/dev/null || grep -c " ${username}$" "$log_file" 2>/dev/null || echo "0")
+    total_requests=$(echo "$total_requests" | tr -d ' ')
 
-    if [ "$total_requests" -eq 0 ]; then
+    if [ "$total_requests" -eq 0 ] || [ -z "$total_requests" ]; then
         print_warning "No activity found for user $username"
+        print_info "Make sure the user has used the proxy and logging is enabled"
         exit 0
     fi
 
@@ -613,13 +615,19 @@ show_user_stats() {
     echo ""
 
     # Calculate total data transferred (bytes)
-    # Squid log format: timestamp elapsed client action/code size method URL ...
-    # Size is usually in 6th or 7th field depending on log format
-    local total_bytes=$(grep " ${username} " "$log_file" 2>/dev/null | awk '{sum += $5} END {print sum}')
+    # Squid log format varies, try to extract size field
+    local log_lines=$(grep " ${username} " "$log_file" 2>/dev/null || grep " ${username}$" "$log_file" 2>/dev/null)
+    local total_bytes="0"
 
-    if [ -z "$total_bytes" ] || [ "$total_bytes" = "0" ]; then
-        # Try alternative format
-        total_bytes=$(grep " ${username} " "$log_file" 2>/dev/null | awk '{sum += $4} END {print sum}')
+    if [ -n "$log_lines" ]; then
+        # Try different field positions for size (usually 4th, 5th, or 6th field)
+        total_bytes=$(echo "$log_lines" | awk '{sum += $5} END {if (sum) print sum; else print "0"}')
+        if [ "$total_bytes" = "0" ] || [ -z "$total_bytes" ]; then
+            total_bytes=$(echo "$log_lines" | awk '{sum += $4} END {if (sum) print sum; else print "0"}')
+        fi
+        if [ "$total_bytes" = "0" ] || [ -z "$total_bytes" ]; then
+            total_bytes=$(echo "$log_lines" | awk '{sum += $6} END {if (sum) print sum; else print "0"}')
+        fi
     fi
 
     # Convert bytes to human readable format
@@ -636,11 +644,11 @@ show_user_stats() {
 
     # Show last activity
     print_info "Last activity:"
-    local last_line=$(grep " ${username} " "$log_file" 2>/dev/null | tail -1)
+    local last_line=$(grep " ${username} " "$log_file" 2>/dev/null | tail -1 || grep " ${username}$" "$log_file" 2>/dev/null | tail -1)
     if [ -n "$last_line" ]; then
-        # Extract timestamp (first field in epoch time)
-        local last_timestamp=$(echo "$last_line" | awk '{print $1}')
-        if [ -n "$last_timestamp" ]; then
+        # Extract timestamp (first field in epoch time, may have milliseconds)
+        local last_timestamp=$(echo "$last_line" | awk '{print $1}' | cut -d. -f1)
+        if [ -n "$last_timestamp" ] && [ "$last_timestamp" != "0" ]; then
             # Convert epoch to readable date if date command supports it
             if date -d "@$last_timestamp" > /dev/null 2>&1; then
                 echo "  $(date -d "@$last_timestamp" '+%Y-%m-%d %H:%M:%S')"
@@ -649,18 +657,27 @@ show_user_stats() {
             else
                 echo "  Timestamp: $last_timestamp"
             fi
+        else
+            echo "  (unable to parse timestamp)"
         fi
+    else
+        echo "  (no data)"
     fi
     echo ""
 
     # Show top 10 most accessed domains
     print_info "Top 10 most accessed domains:"
-    grep " ${username} " "$log_file" 2>/dev/null | \
-        awk '{print $7}' | \
-        sed 's|http://||g; s|https://||g' | \
-        sed 's|/.*||g' | \
-        sort | uniq -c | sort -rn | head -10 | \
-        awk '{printf "  %-6s %s\n", $1, $2}'
+    local domain_lines=$(grep " ${username} " "$log_file" 2>/dev/null || grep " ${username}$" "$log_file" 2>/dev/null)
+    if [ -n "$domain_lines" ]; then
+        echo "$domain_lines" | \
+            awk '{for(i=1;i<=NF;i++) if ($i ~ /^http/ || $i ~ /^https/) print $i}' | \
+            sed 's|http://||g; s|https://||g' | \
+            sed 's|/.*||g' | \
+            sort | uniq -c | sort -rn | head -10 | \
+            awk '{printf "  %-6s %s\n", $1, $2}' || echo "  (unable to parse domains)"
+    else
+        echo "  (no data)"
+    fi
     echo ""
 
     # Show requests by hour (last 24 hours if possible)
