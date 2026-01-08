@@ -752,8 +752,19 @@ main() {
             show_status
             ;;
         stop)
-            print_info "Stopping service..."
-            systemctl stop "$SERVICE_NAME"
+            if systemctl is-active --quiet "$SERVICE_NAME"; then
+                print_info "Stopping service..."
+                systemctl stop "$SERVICE_NAME"
+                sleep 1
+                if systemctl is-active --quiet "$SERVICE_NAME"; then
+                    print_error "Failed to stop service"
+                    exit 1
+                else
+                    print_info "Service stopped successfully"
+                fi
+            else
+                print_warning "Service is already stopped"
+            fi
             show_status
             ;;
         restart)
