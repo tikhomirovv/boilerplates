@@ -208,12 +208,12 @@ acl authenticated proxy_auth REQUIRED
 # ACL for CONNECT method (for HTTPS, Telegram, and other TCP protocols)
 acl CONNECT method CONNECT
 
+# Allow authenticated users (regular HTTP requests)
+http_access allow authenticated
+
 # Allow authenticated users to use CONNECT method (MUST be before regular http_access)
 # This is needed for Telegram, HTTPS, and other TCP protocols
 http_access allow authenticated CONNECT
-
-# Allow authenticated users (regular HTTP requests)
-http_access allow authenticated
 
 # Deny all other requests
 http_access deny all
