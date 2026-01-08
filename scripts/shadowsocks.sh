@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 
 # Check if terminal supports colors
-if [ -t 1 ] && command -v tput &> /dev/null; then
+if [ -t 1 ] && command -v tput > /dev/null 2>&1; then
     # Terminal supports colors
     RED=$(tput setaf 1)
     GREEN=$(tput setaf 2)
@@ -36,7 +36,7 @@ print_warning() {
 
 # Function to check if running as root
 check_root() {
-    if [ "$EUID" -ne 0 ]; then
+    if [ "$(id -u)" -ne 0 ]; then
         print_error "Please run as root (use sudo)"
         exit 1
     fi
@@ -44,7 +44,7 @@ check_root() {
 
 # Function to check if shadowsocks is installed
 check_shadowsocks_installed() {
-    if ! command -v ssserver &> /dev/null; then
+    if ! command -v ssserver > /dev/null 2>&1; then
         return 1
     fi
     return 0
@@ -58,7 +58,7 @@ install_shadowsocks() {
     apt-get update -qq
 
     # Install Python and pip if not present
-    if ! command -v python3 &> /dev/null; then
+    if ! command -v python3 > /dev/null 2>&1; then
         print_info "Installing Python3..."
         apt-get install -y python3 python3-pip > /dev/null 2>&1
     fi
@@ -95,7 +95,12 @@ get_input() {
 # Function to validate port
 validate_port() {
     local port=$1
-    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    # Check if port is numeric using case statement (POSIX compatible)
+    case "$port" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    # Check if port is in valid range
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
         return 1
     fi
     return 0
@@ -110,7 +115,7 @@ setup_config() {
         print_warning "Configuration file already exists. It will be updated."
 
         # Try to read existing values
-        if command -v jq &> /dev/null; then
+        if command -v jq > /dev/null 2>&1; then
             EXISTING_PORT=$(jq -r '.server_port' "$CONFIG_FILE" 2>/dev/null)
             EXISTING_METHOD=$(jq -r '.method' "$CONFIG_FILE" 2>/dev/null)
         fi
@@ -229,7 +234,7 @@ create_systemd_service() {
     print_info "Creating systemd service..."
 
     # Find ssserver path
-    SSERVER_PATH=$(which ssserver)
+    SSERVER_PATH=$(command -v ssserver)
     if [ -z "$SSERVER_PATH" ]; then
         SSERVER_PATH="/usr/local/bin/ssserver"
     fi
@@ -389,17 +394,20 @@ main() {
             # Check if shadowsocks is installed
             if ! check_shadowsocks_installed; then
                 print_warning "Shadowsocks is not installed"
-                read -p "Do you want to install it now? (y/n): " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    install_shadowsocks
-                    if [ $? -ne 0 ]; then
+                printf "Do you want to install it now? (y/n): "
+                read REPLY
+                case "$REPLY" in
+                    [Yy]*)
+                        install_shadowsocks
+                        if [ $? -ne 0 ]; then
+                            exit 1
+                        fi
+                        ;;
+                    *)
+                        print_error "Installation cancelled"
                         exit 1
-                    fi
-                else
-                    print_error "Installation cancelled"
-                    exit 1
-                fi
+                        ;;
+                esac
             fi
             setup_config
             ;;
