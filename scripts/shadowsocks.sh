@@ -44,7 +44,7 @@ check_root() {
 
 # Function to check if shadowsocks-libev is installed
 check_shadowsocks_installed() {
-    if ! command -v ssserver > /dev/null 2>&1; then
+    if ! command -v ss-server > /dev/null 2>&1; then
         return 1
     fi
     return 0
@@ -69,11 +69,11 @@ install_shadowsocks() {
     fi
 
     # Verify installation
-    if command -v ssserver > /dev/null 2>&1; then
+    if command -v ss-server > /dev/null 2>&1; then
         print_info "Shadowsocks-libev installed successfully"
         return 0
     else
-        print_error "Installation completed but ssserver command not found"
+        print_error "Installation completed but ss-server command not found"
         return 1
     fi
 }
