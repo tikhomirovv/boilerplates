@@ -160,12 +160,19 @@ setup_config() {
     # Add or update user password
     print_info "Setting up authentication..."
     if command -v htpasswd > /dev/null 2>&1; then
+        # Check if password file exists
+        if [ ! -f "$PASSWD_FILE" ]; then
+            touch "$PASSWD_FILE"
+            chown proxy:proxy "$PASSWD_FILE"
+            chmod 640 "$PASSWD_FILE"
+        fi
+
         # Check if user already exists
         if grep -q "^${PROXY_USER}:" "$PASSWD_FILE" 2>/dev/null; then
             print_warning "User $PROXY_USER already exists. Updating password..."
             htpasswd -b "$PASSWD_FILE" "$PROXY_USER" "$PROXY_PASSWORD"
         else
-            htpasswd -b -c "$PASSWD_FILE" "$PROXY_USER" "$PROXY_PASSWORD"
+            htpasswd -b "$PASSWD_FILE" "$PROXY_USER" "$PROXY_PASSWORD"
         fi
         chown proxy:proxy "$PASSWD_FILE"
         chmod 640 "$PASSWD_FILE"
@@ -311,6 +318,10 @@ Commands:
     logs-follow    Follow service logs (real-time)
     config         Show current configuration
     test           Test if server is listening on port
+    user-add       Add a new proxy user
+    user-del       Delete a proxy user
+    user-list      List all proxy users
+    user-passwd    Change user password
 
 Examples:
     $0              # Show help (default)
@@ -319,6 +330,10 @@ Examples:
     $0 status       # Check service status
     $0 logs         # View recent logs
     $0 restart      # Restart service
+    $0 user-add john    # Add new user 'john'
+    $0 user-del john    # Delete user 'john'
+    $0 user-list        # List all users
+    $0 user-passwd john # Change password for user 'john'
 
 Setup Process:
     When you run '$0 setup', the script will:
@@ -424,6 +439,140 @@ test_server() {
     fi
 }
 
+# Function to add a new user
+add_user() {
+    if [ ! -f "$PASSWD_FILE" ]; then
+        print_error "Password file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-add <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user already exists
+    if grep -q "^${username}:" "$PASSWD_FILE" 2>/dev/null; then
+        print_error "User $username already exists"
+        exit 1
+    fi
+
+    # Get password
+    printf "Enter password for user $username: "
+    stty -echo
+    read password
+    stty echo
+    echo ""
+
+    if [ -z "$password" ]; then
+        print_error "Password cannot be empty"
+        exit 1
+    fi
+
+    # Add user
+    if command -v htpasswd > /dev/null 2>&1; then
+        htpasswd -b "$PASSWD_FILE" "$username" "$password"
+        chown proxy:proxy "$PASSWD_FILE"
+        chmod 640 "$PASSWD_FILE"
+        print_info "User $username added successfully"
+    else
+        print_error "htpasswd not found. Please install apache2-utils"
+        exit 1
+    fi
+}
+
+# Function to delete a user
+delete_user() {
+    if [ ! -f "$PASSWD_FILE" ]; then
+        print_error "Password file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-del <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user exists
+    if ! grep -q "^${username}:" "$PASSWD_FILE" 2>/dev/null; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Delete user
+    htpasswd -D "$PASSWD_FILE" "$username"
+    chown proxy:proxy "$PASSWD_FILE"
+    chmod 640 "$PASSWD_FILE"
+    print_info "User $username deleted successfully"
+}
+
+# Function to list all users
+list_users() {
+    if [ ! -f "$PASSWD_FILE" ]; then
+        print_error "Password file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    local user_count=$(wc -l < "$PASSWD_FILE" 2>/dev/null | tr -d ' ')
+
+    if [ "$user_count" -eq 0 ]; then
+        print_warning "No users found"
+        exit 0
+    fi
+
+    print_info "Proxy users ($user_count total):"
+    echo ""
+    awk -F: '{printf "  %s\n", $1}' "$PASSWD_FILE"
+}
+
+# Function to change user password
+change_password() {
+    if [ ! -f "$PASSWD_FILE" ]; then
+        print_error "Password file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-passwd <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user exists
+    if ! grep -q "^${username}:" "$PASSWD_FILE" 2>/dev/null; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Get new password
+    printf "Enter new password for user $username: "
+    stty -echo
+    read password
+    stty echo
+    echo ""
+
+    if [ -z "$password" ]; then
+        print_error "Password cannot be empty"
+        exit 1
+    fi
+
+    # Update password
+    if command -v htpasswd > /dev/null 2>&1; then
+        htpasswd -b "$PASSWD_FILE" "$username" "$password"
+        chown proxy:proxy "$PASSWD_FILE"
+        chmod 640 "$PASSWD_FILE"
+        print_info "Password for user $username updated successfully"
+    else
+        print_error "htpasswd not found. Please install apache2-utils"
+        exit 1
+    fi
+}
+
 # Main script logic
 main() {
     # Check root privileges
@@ -487,6 +636,18 @@ main() {
             ;;
         test)
             test_server
+            ;;
+        user-add)
+            add_user "$@"
+            ;;
+        user-del)
+            delete_user "$@"
+            ;;
+        user-list)
+            list_users
+            ;;
+        user-passwd)
+            change_password "$@"
             ;;
         *)
             print_error "Unknown command: $COMMAND"
