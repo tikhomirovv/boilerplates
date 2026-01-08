@@ -611,9 +611,11 @@ show_user_stats() {
         exit 0
     fi
 
-    # Count total connections
-    local total_connections=$(echo "$log_output" | grep -c ".*" || echo "0")
-    total_connections=$(echo "$total_connections" | tr -d ' ')
+    # Count total connections (filter out empty lines)
+    local total_connections=$(echo "$log_output" | grep -v '^[[:space:]]*$' | wc -l | tr -d ' ')
+    if [ -z "$total_connections" ]; then
+        total_connections="0"
+    fi
 
     if [ "$total_connections" -eq 0 ] || [ -z "$total_connections" ]; then
         print_warning "No activity found for user $username"
