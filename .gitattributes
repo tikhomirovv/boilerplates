@@ -4,13 +4,3 @@
 # Shell scripts - текстовые файлы с LF окончаниями строк
 # Это гарантирует, что скрипты будут работать одинаково на всех системах
 *.sh text eol=lf
-
-# Docker compose files - тоже текстовые с LF
-*.yml text eol=lf
-*.yaml text eol=lf
-
-# Markdown files
-*.md text eol=lf
-
-# README files
-README* text eol=lf
