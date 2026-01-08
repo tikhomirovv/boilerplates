@@ -22,16 +22,17 @@ SERVICE_FILE="/etc/systemd/system/shadowsocks.service"
 SERVICE_NAME="shadowsocks"
 
 # Function to print colored messages
+# Using printf instead of echo -e for POSIX sh compatibility
 print_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    printf "%s[INFO]%s %s\n" "${GREEN}" "${NC}" "$1"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    printf "%s[ERROR]%s %s\n" "${RED}" "${NC}" "$1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    printf "%s[WARNING]%s %s\n" "${YELLOW}" "${NC}" "$1"
 }
 
 # Function to check if running as root
@@ -55,23 +56,47 @@ install_shadowsocks() {
     print_info "Installing Shadowsocks..."
 
     # Update package list
-    apt-get update -qq
+    print_info "Updating package list..."
+    if ! apt-get update -qq; then
+        print_error "Failed to update package list"
+        return 1
+    fi
 
     # Install Python and pip if not present
     if ! command -v python3 > /dev/null 2>&1; then
         print_info "Installing Python3..."
-        apt-get install -y python3 python3-pip > /dev/null 2>&1
+        if ! apt-get install -y python3 python3-pip; then
+            print_error "Failed to install Python3"
+            return 1
+        fi
     fi
 
     # Install shadowsocks
     print_info "Installing Shadowsocks via pip..."
-    pip3 install shadowsocks > /dev/null 2>&1
+    # Show errors for debugging
+    if ! pip3 install shadowsocks 2>&1; then
+        print_error "Failed to install Shadowsocks"
+        print_info "Trying to get more information..."
+        # Check if pip3 is working
+        if ! command -v pip3 > /dev/null 2>&1; then
+            print_error "pip3 is not available. Trying to install python3-pip..."
+            apt-get install -y python3-pip
+        fi
+        return 1
+    fi
 
-    if [ $? -eq 0 ]; then
+    # Verify installation
+    if command -v ssserver > /dev/null 2>&1; then
         print_info "Shadowsocks installed successfully"
         return 0
     else
-        print_error "Failed to install Shadowsocks"
+        print_error "Shadowsocks installation completed but ssserver command not found"
+        print_info "Trying to find ssserver..."
+        # Try to find ssserver in common locations
+        if [ -f "/usr/local/bin/ssserver" ]; then
+            print_info "Found ssserver at /usr/local/bin/ssserver"
+            return 0
+        fi
         return 1
     fi
 }
