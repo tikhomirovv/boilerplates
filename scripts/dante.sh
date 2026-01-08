@@ -17,6 +17,7 @@ fi
 
 # Configuration paths for Dante SOCKS5 proxy
 CONFIG_FILE="/etc/danted.conf"
+USERS_FILE="/etc/danted.users"
 SERVICE_NAME="danted"
 PROXY_USER="socks5proxy"
 
@@ -176,6 +177,15 @@ setup_config() {
         print_info "User $PROXY_USER created"
     fi
 
+    # Add user to users list file
+    if [ ! -f "$USERS_FILE" ]; then
+        touch "$USERS_FILE"
+        chmod 600 "$USERS_FILE"
+    fi
+    if ! grep -q "^${PROXY_USER}$" "$USERS_FILE" 2>/dev/null; then
+        echo "$PROXY_USER" >> "$USERS_FILE"
+    fi
+
     # Backup existing config if it exists
     if [ -f "$CONFIG_FILE" ]; then
         cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
@@ -293,6 +303,11 @@ Commands:
     logs-follow    Follow service logs (real-time)
     config         Show current configuration
     test           Test if server is listening on port
+    user-add       Add a new proxy user
+    user-del       Delete a proxy user
+    user-list      List all proxy users
+    user-passwd    Change user password
+    user-stats     Show usage statistics for a user
 
 Examples:
     $0              # Show help (default)
@@ -301,6 +316,11 @@ Examples:
     $0 status       # Check service status
     $0 logs         # View recent logs
     $0 restart      # Restart service
+    $0 user-add john    # Add new user 'john'
+    $0 user-del john    # Delete user 'john'
+    $0 user-list        # List all users
+    $0 user-passwd john # Change password for user 'john'
+    $0 user-stats john  # Show statistics for user 'john'
 
 Setup Process:
     When you run '$0 setup', the script will:
@@ -313,6 +333,7 @@ Setup Process:
 
 Configuration File:
     Location: $CONFIG_FILE
+    Users File: $USERS_FILE
 
 Service Management:
     Uses systemd service: '$SERVICE_NAME'
@@ -403,6 +424,242 @@ test_server() {
     fi
 }
 
+# Function to add a new user
+add_user() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        print_error "Configuration file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-add <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user already exists
+    if id "$username" > /dev/null 2>&1; then
+        print_error "User $username already exists"
+        exit 1
+    fi
+
+    # Get password
+    printf "Enter password for user $username: "
+    stty -echo
+    read password
+    stty echo
+    echo ""
+
+    if [ -z "$password" ]; then
+        print_error "Password cannot be empty"
+        exit 1
+    fi
+
+    # Create system user
+    useradd --system --shell /usr/sbin/nologin --home-dir /dev/null --no-create-home "$username"
+    echo "$username:$password" | chpasswd
+    print_info "System user $username created"
+
+    # Add user to users list file
+    if [ ! -f "$USERS_FILE" ]; then
+        touch "$USERS_FILE"
+        chmod 600 "$USERS_FILE"
+    fi
+    if ! grep -q "^${username}$" "$USERS_FILE" 2>/dev/null; then
+        echo "$username" >> "$USERS_FILE"
+    fi
+
+    print_info "User $username added successfully to proxy"
+}
+
+# Function to delete a user
+delete_user() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        print_error "Configuration file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-del <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user exists
+    if ! id "$username" > /dev/null 2>&1; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Check if user is in users list
+    if [ -f "$USERS_FILE" ] && ! grep -q "^${username}$" "$USERS_FILE" 2>/dev/null; then
+        print_warning "User $username exists but is not in proxy users list"
+    fi
+
+    # Delete user from users list
+    if [ -f "$USERS_FILE" ]; then
+        grep -v "^${username}$" "$USERS_FILE" > "${USERS_FILE}.tmp" 2>/dev/null
+        mv "${USERS_FILE}.tmp" "$USERS_FILE" 2>/dev/null
+    fi
+
+    # Delete system user
+    userdel "$username" 2>/dev/null
+    print_info "User $username deleted successfully"
+}
+
+# Function to list all users
+list_users() {
+    if [ ! -f "$USERS_FILE" ]; then
+        print_error "Users file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    local user_count=$(wc -l < "$USERS_FILE" 2>/dev/null | tr -d ' ')
+
+    if [ "$user_count" -eq 0 ]; then
+        print_warning "No users found"
+        exit 0
+    fi
+
+    print_info "Proxy users ($user_count total):"
+    echo ""
+    # Read file and filter out empty lines
+    grep -v '^[[:space:]]*$' "$USERS_FILE" 2>/dev/null | while read username; do
+        if [ -n "$username" ]; then
+            if id "$username" > /dev/null 2>&1; then
+                printf "  %s\n" "$username"
+            else
+                printf "  %s (user deleted but still in list)\n" "$username"
+            fi
+        fi
+    done
+}
+
+# Function to change user password
+change_password() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        print_error "Configuration file not found. Run 'setup' first."
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        print_error "Usage: $0 user-passwd <username>"
+        exit 1
+    fi
+
+    local username="$2"
+
+    # Check if user exists
+    if ! id "$username" > /dev/null 2>&1; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Check if user is in users list
+    if [ ! -f "$USERS_FILE" ] || ! grep -q "^${username}$" "$USERS_FILE" 2>/dev/null; then
+        print_warning "User $username exists but is not in proxy users list"
+    fi
+
+    # Get new password
+    printf "Enter new password for user $username: "
+    stty -echo
+    read password
+    stty echo
+    echo ""
+
+    if [ -z "$password" ]; then
+        print_error "Password cannot be empty"
+        exit 1
+    fi
+
+    # Update password
+    echo "$username:$password" | chpasswd
+    print_info "Password for user $username updated successfully"
+}
+
+# Function to show user statistics
+show_user_stats() {
+    local username="$2"
+
+    if [ -z "$username" ]; then
+        print_error "Usage: $0 user-stats <username>"
+        exit 1
+    fi
+
+    # Check if user exists
+    if ! id "$username" > /dev/null 2>&1; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Check if user is in users list
+    if [ ! -f "$USERS_FILE" ] || ! grep -q "^${username}$" "$USERS_FILE" 2>/dev/null; then
+        print_warning "User $username exists but is not in proxy users list"
+    fi
+
+    print_info "Statistics for user: $username"
+    echo ""
+
+    # Get logs from journalctl (Dante logs to syslog)
+    local log_output=$(journalctl -u "$SERVICE_NAME" --no-pager 2>/dev/null | grep -i "$username" || true)
+
+    if [ -z "$log_output" ]; then
+        print_warning "No activity found for user $username"
+        print_info "Make sure the user has used the proxy and logging is enabled"
+        exit 0
+    fi
+
+    # Count total connections
+    local total_connections=$(echo "$log_output" | grep -c ".*" || echo "0")
+    total_connections=$(echo "$total_connections" | tr -d ' ')
+
+    if [ "$total_connections" -eq 0 ] || [ -z "$total_connections" ]; then
+        print_warning "No activity found for user $username"
+        exit 0
+    fi
+
+    echo "Total connections: $total_connections"
+    echo ""
+
+    # Show last activity
+    print_info "Last activity:"
+    local last_line=$(echo "$log_output" | tail -1)
+    if [ -n "$last_line" ]; then
+        # Extract date from journalctl output (format: YYYY-MM-DD HH:MM:SS)
+        local last_date=$(echo "$last_line" | awk '{print $1, $2, $3}' | head -1)
+        if [ -n "$last_date" ]; then
+            echo "  $last_date"
+        else
+            echo "  (unable to parse date)"
+        fi
+    else
+        echo "  (no data)"
+    fi
+    echo ""
+
+    # Show recent activity (last 10 lines)
+    print_info "Recent activity (last 10 connections):"
+    echo "$log_output" | tail -10 | while read line; do
+        if [ -n "$line" ]; then
+            # Extract date and message
+            local date_part=$(echo "$line" | awk '{print $1, $2, $3}' | head -1)
+            local message=$(echo "$line" | cut -d' ' -f5-)
+            if [ -n "$date_part" ] && [ -n "$message" ]; then
+                printf "  %s - %s\n" "$date_part" "$message"
+            fi
+        fi
+    done
+    echo ""
+
+    # Show activity summary by date
+    print_info "Activity by date:"
+    echo "$log_output" | awk '{print $1, $2, $3}' | sort | uniq -c | tail -10 | \
+        awk '{printf "  %-6s %s %s %s\n", $1, $2, $3, $4}'
+    echo ""
+}
+
 # Main script logic
 main() {
     # Check root privileges
@@ -477,6 +734,21 @@ main() {
             ;;
         test)
             test_server
+            ;;
+        user-add)
+            add_user "$@"
+            ;;
+        user-del)
+            delete_user "$@"
+            ;;
+        user-list)
+            list_users
+            ;;
+        user-passwd)
+            change_password "$@"
+            ;;
+        user-stats)
+            show_user_stats "$@"
             ;;
         *)
             print_error "Unknown command: $COMMAND"
