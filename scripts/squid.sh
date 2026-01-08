@@ -205,8 +205,14 @@ auth_param basic credentialsttl 2 hours
 # ACL for authenticated users
 acl authenticated proxy_auth REQUIRED
 
-# Allow authenticated users
+# ACL for CONNECT method (for HTTPS, Telegram, and other TCP protocols)
+acl CONNECT method CONNECT
+
+# Allow authenticated users (regular HTTP requests)
 http_access allow authenticated
+
+# Allow authenticated users to use CONNECT method (universal solution for all TCP protocols)
+http_access allow authenticated CONNECT
 
 # Deny all other requests
 http_access deny all
