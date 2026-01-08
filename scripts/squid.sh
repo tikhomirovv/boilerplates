@@ -322,6 +322,7 @@ Commands:
     user-del       Delete a proxy user
     user-list      List all proxy users
     user-passwd    Change user password
+    user-stats     Show usage statistics for a user
 
 Examples:
     $0              # Show help (default)
@@ -334,6 +335,7 @@ Examples:
     $0 user-del john    # Delete user 'john'
     $0 user-list        # List all users
     $0 user-passwd john # Change password for user 'john'
+    $0 user-stats john  # Show statistics for user 'john'
 
 Setup Process:
     When you run '$0 setup', the script will:
@@ -573,6 +575,120 @@ change_password() {
     fi
 }
 
+# Function to show user statistics
+show_user_stats() {
+    local username="$2"
+    local log_file="/var/log/squid/access.log"
+
+    if [ -z "$username" ]; then
+        print_error "Usage: $0 user-stats <username>"
+        exit 1
+    fi
+
+    # Check if user exists
+    if [ ! -f "$PASSWD_FILE" ] || ! grep -q "^${username}:" "$PASSWD_FILE" 2>/dev/null; then
+        print_error "User $username not found"
+        exit 1
+    fi
+
+    # Check if log file exists
+    if [ ! -f "$log_file" ]; then
+        print_error "Log file not found: $log_file"
+        print_info "User may not have used the proxy yet, or logging is not configured"
+        exit 1
+    fi
+
+    print_info "Statistics for user: $username"
+    echo ""
+
+    # Count total requests
+    local total_requests=$(grep " ${username} " "$log_file" 2>/dev/null | wc -l | tr -d ' ')
+
+    if [ "$total_requests" -eq 0 ]; then
+        print_warning "No activity found for user $username"
+        exit 0
+    fi
+
+    echo "Total requests: $total_requests"
+    echo ""
+
+    # Calculate total data transferred (bytes)
+    # Squid log format: timestamp elapsed client action/code size method URL ...
+    # Size is usually in 6th or 7th field depending on log format
+    local total_bytes=$(grep " ${username} " "$log_file" 2>/dev/null | awk '{sum += $5} END {print sum}')
+
+    if [ -z "$total_bytes" ] || [ "$total_bytes" = "0" ]; then
+        # Try alternative format
+        total_bytes=$(grep " ${username} " "$log_file" 2>/dev/null | awk '{sum += $4} END {print sum}')
+    fi
+
+    # Convert bytes to human readable format
+    local total_mb="0"
+    if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ]; then
+        total_mb=$(echo "scale=2; $total_bytes / 1024 / 1024" | bc 2>/dev/null || echo "0")
+        if [ -z "$total_mb" ] || [ "$total_mb" = "0" ]; then
+            total_mb=$(awk "BEGIN {printf \"%.2f\", $total_bytes / 1024 / 1024}")
+        fi
+    fi
+
+    echo "Total data transferred: ${total_mb} MB (${total_bytes} bytes)"
+    echo ""
+
+    # Show last activity
+    print_info "Last activity:"
+    local last_line=$(grep " ${username} " "$log_file" 2>/dev/null | tail -1)
+    if [ -n "$last_line" ]; then
+        # Extract timestamp (first field in epoch time)
+        local last_timestamp=$(echo "$last_line" | awk '{print $1}')
+        if [ -n "$last_timestamp" ]; then
+            # Convert epoch to readable date if date command supports it
+            if date -d "@$last_timestamp" > /dev/null 2>&1; then
+                echo "  $(date -d "@$last_timestamp" '+%Y-%m-%d %H:%M:%S')"
+            elif date -r "$last_timestamp" > /dev/null 2>&1; then
+                echo "  $(date -r "$last_timestamp" '+%Y-%m-%d %H:%M:%S')"
+            else
+                echo "  Timestamp: $last_timestamp"
+            fi
+        fi
+    fi
+    echo ""
+
+    # Show top 10 most accessed domains
+    print_info "Top 10 most accessed domains:"
+    grep " ${username} " "$log_file" 2>/dev/null | \
+        awk '{print $7}' | \
+        sed 's|http://||g; s|https://||g' | \
+        sed 's|/.*||g' | \
+        sort | uniq -c | sort -rn | head -10 | \
+        awk '{printf "  %-6s %s\n", $1, $2}'
+    echo ""
+
+    # Show requests by hour (last 24 hours if possible)
+    print_info "Activity by hour (last 24 hours):"
+    local current_time=$(date +%s)
+    local day_ago=$((current_time - 86400))
+
+    grep " ${username} " "$log_file" 2>/dev/null | \
+        awk -v day_ago="$day_ago" '$1 >= day_ago {print $1}' | \
+        while read timestamp; do
+            if date -d "@$timestamp" > /dev/null 2>&1; then
+                date -d "@$timestamp" '+%Y-%m-%d %H:00'
+            elif date -r "$timestamp" > /dev/null 2>&1; then
+                date -r "$timestamp" '+%Y-%m-%d %H:00'
+            fi
+        done | sort | uniq -c | tail -24 | \
+        awk '{printf "  %-6s %s\n", $1, $2}'
+    echo ""
+
+    # Show HTTP status codes
+    print_info "HTTP status codes:"
+    grep " ${username} " "$log_file" 2>/dev/null | \
+        awk '{print $3}' | \
+        sed 's|/.*||g' | \
+        sort | uniq -c | sort -rn | \
+        awk '{printf "  %-6s %s\n", $1, $2}'
+}
+
 # Main script logic
 main() {
     # Check root privileges
@@ -648,6 +764,9 @@ main() {
             ;;
         user-passwd)
             change_password "$@"
+            ;;
+        user-stats)
+            show_user_stats "$@"
             ;;
         *)
             print_error "Unknown command: $COMMAND"
