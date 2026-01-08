@@ -142,17 +142,17 @@ setup_config() {
 
     # Get encryption method
     print_info "Available encryption methods:"
-    echo "  1) aes-256-cfb (recommended)"
-    echo "  2) aes-128-cfb"
-    echo "  3) chacha20-ietf-poly1305"
+    echo "  1) chacha20-ietf-poly1305 (recommended)"
+    echo "  2) aes-256-cfb"
+    echo "  3) aes-128-cfb"
     echo "  4) aes-256-gcm"
     echo "  5) aes-128-gcm"
-    get_input "Select encryption method (1-5) or enter custom" "${EXISTING_METHOD:-aes-256-cfb}" "METHOD_CHOICE"
+    get_input "Select encryption method (1-5) or enter custom" "${EXISTING_METHOD:-chacha20-ietf-poly1305}" "METHOD_CHOICE"
 
     case "$METHOD_CHOICE" in
-        1) ENCRYPTION_METHOD="aes-256-cfb" ;;
-        2) ENCRYPTION_METHOD="aes-128-cfb" ;;
-        3) ENCRYPTION_METHOD="chacha20-ietf-poly1305" ;;
+        1) ENCRYPTION_METHOD="chacha20-ietf-poly1305" ;;
+        2) ENCRYPTION_METHOD="aes-256-cfb" ;;
+        3) ENCRYPTION_METHOD="aes-128-cfb" ;;
         4) ENCRYPTION_METHOD="aes-256-gcm" ;;
         5) ENCRYPTION_METHOD="aes-128-gcm" ;;
         *) ENCRYPTION_METHOD="$METHOD_CHOICE" ;;
