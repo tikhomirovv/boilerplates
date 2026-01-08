@@ -15,11 +15,10 @@ else
     NC=""
 fi
 
-# Configuration paths
-CONFIG_DIR="/etc/shadowsocks"
+# Configuration paths for shadowsocks-libev
+CONFIG_DIR="/etc/shadowsocks-libev"
 CONFIG_FILE="$CONFIG_DIR/config.json"
-SERVICE_FILE="/etc/systemd/system/shadowsocks.service"
-SERVICE_NAME="shadowsocks"
+SERVICE_NAME="shadowsocks-libev"
 
 # Function to print colored messages
 # Using printf instead of echo -e for POSIX sh compatibility
@@ -43,7 +42,7 @@ check_root() {
     fi
 }
 
-# Function to check if shadowsocks is installed
+# Function to check if shadowsocks-libev is installed
 check_shadowsocks_installed() {
     if ! command -v ssserver > /dev/null 2>&1; then
         return 1
@@ -51,9 +50,9 @@ check_shadowsocks_installed() {
     return 0
 }
 
-# Function to install shadowsocks
+# Function to install shadowsocks-libev
 install_shadowsocks() {
-    print_info "Installing Shadowsocks..."
+    print_info "Installing Shadowsocks-libev..."
 
     # Update package list
     print_info "Updating package list..."
@@ -62,41 +61,19 @@ install_shadowsocks() {
         return 1
     fi
 
-    # Install Python and pip if not present
-    if ! command -v python3 > /dev/null 2>&1; then
-        print_info "Installing Python3..."
-        if ! apt-get install -y python3 python3-pip; then
-            print_error "Failed to install Python3"
-            return 1
-        fi
-    fi
-
-    # Install shadowsocks
-    print_info "Installing Shadowsocks via pip..."
-    # Show errors for debugging
-    if ! pip3 install shadowsocks 2>&1; then
-        print_error "Failed to install Shadowsocks"
-        print_info "Trying to get more information..."
-        # Check if pip3 is working
-        if ! command -v pip3 > /dev/null 2>&1; then
-            print_error "pip3 is not available. Trying to install python3-pip..."
-            apt-get install -y python3-pip
-        fi
+    # Install shadowsocks-libev from Debian/Ubuntu repository
+    print_info "Installing shadowsocks-libev package..."
+    if ! apt-get install -y shadowsocks-libev; then
+        print_error "Failed to install shadowsocks-libev"
         return 1
     fi
 
     # Verify installation
     if command -v ssserver > /dev/null 2>&1; then
-        print_info "Shadowsocks installed successfully"
+        print_info "Shadowsocks-libev installed successfully"
         return 0
     else
-        print_error "Shadowsocks installation completed but ssserver command not found"
-        print_info "Trying to find ssserver..."
-        # Try to find ssserver in common locations
-        if [ -f "/usr/local/bin/ssserver" ]; then
-            print_info "Found ssserver at /usr/local/bin/ssserver"
-            return 0
-        fi
+        print_error "Installation completed but ssserver command not found"
         return 1
     fi
 }
@@ -184,18 +161,17 @@ setup_config() {
     # Create config directory
     mkdir -p "$CONFIG_DIR"
 
-    # Create configuration file
+    # Create configuration file for shadowsocks-libev
     print_info "Creating configuration file..."
     cat > "$CONFIG_FILE" << EOF
 {
-    "server": "0.0.0.0",
+    "server": ["::1", "0.0.0.0"],
+    "mode": "tcp_and_udp",
     "server_port": $SERVER_PORT,
-    "local_address": "127.0.0.1",
     "local_port": 1080,
     "password": "$PASSWORD",
-    "timeout": 300,
-    "method": "$ENCRYPTION_METHOD",
-    "fast_open": false
+    "timeout": 86400,
+    "method": "$ENCRYPTION_METHOD"
 }
 EOF
 
@@ -204,12 +180,9 @@ EOF
     # Setup firewall
     setup_firewall "$SERVER_PORT"
 
-    # Create systemd service
-    create_systemd_service
-
-    # Reload systemd and start service
-    print_info "Starting Shadowsocks service..."
-    systemctl daemon-reload
+    # shadowsocks-libev comes with its own systemd service
+    # Just enable and start it
+    print_info "Starting Shadowsocks-libev service..."
     systemctl enable "$SERVICE_NAME"
     systemctl restart "$SERVICE_NAME"
 
@@ -237,51 +210,31 @@ setup_firewall() {
     print_info "Configuring firewall for port $port..."
 
     # Check if ufw is installed and active
-    if command -v ufw &> /dev/null; then
+    if command -v ufw > /dev/null 2>&1; then
         if ufw status | grep -q "Status: active"; then
             ufw allow "$port/tcp" > /dev/null 2>&1
-            print_info "Firewall rule added (UFW)"
+            ufw allow "$port/udp" > /dev/null 2>&1
+            print_info "Firewall rules added (UFW) for TCP and UDP"
         fi
     fi
 
     # Also try iptables (if ufw is not used)
-    if command -v iptables &> /dev/null; then
-        # Check if rule already exists
+    if command -v iptables > /dev/null 2>&1; then
+        # Check if TCP rule already exists
         if ! iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null; then
             iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
-            print_info "Firewall rule added (iptables)"
+            print_info "Firewall rule added (iptables) for TCP"
+        fi
+        # Check if UDP rule already exists
+        if ! iptables -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null; then
+            iptables -A INPUT -p udp --dport "$port" -j ACCEPT
+            print_info "Firewall rule added (iptables) for UDP"
         fi
     fi
 }
 
-# Function to create systemd service
-create_systemd_service() {
-    print_info "Creating systemd service..."
-
-    # Find ssserver path
-    SSERVER_PATH=$(command -v ssserver)
-    if [ -z "$SSERVER_PATH" ]; then
-        SSERVER_PATH="/usr/local/bin/ssserver"
-    fi
-
-    cat > "$SERVICE_FILE" << EOF
-[Unit]
-Description=Shadowsocks Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=$SSERVER_PATH -c $CONFIG_FILE
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    print_info "Systemd service file created at $SERVICE_FILE"
-}
+# Note: shadowsocks-libev comes with its own systemd service
+# No need to create custom service file
 
 # Function to show help
 show_help() {
@@ -313,18 +266,18 @@ Examples:
 
 Setup Process:
     When you run '$0 setup', the script will:
-    1. Check and install Shadowsocks if needed
+    1. Check and install shadowsocks-libev if needed (from Debian/Ubuntu repository)
     2. Ask for configuration (port, password, encryption method)
     3. Create/update configuration file
-    4. Configure firewall
-    5. Create systemd service
-    6. Start and enable the service
+    4. Configure firewall (TCP and UDP)
+    5. Enable and start the systemd service
 
 Configuration File:
     Location: $CONFIG_FILE
+    Format: shadowsocks-libev compatible JSON
 
 Service Management:
-    The script creates a systemd service named '$SERVICE_NAME'
+    Uses built-in systemd service: '$SERVICE_NAME'
     You can also use standard systemctl commands:
     - sudo systemctl start $SERVICE_NAME
     - sudo systemctl stop $SERVICE_NAME
@@ -363,7 +316,12 @@ show_config() {
     if [ -f "$CONFIG_FILE" ]; then
         print_info "Current configuration:"
         echo ""
-        cat "$CONFIG_FILE" | python3 -m json.tool 2>/dev/null || cat "$CONFIG_FILE"
+        # Try to format JSON with jq if available, otherwise just show raw file
+        if command -v jq > /dev/null 2>&1; then
+            jq . "$CONFIG_FILE" 2>/dev/null || cat "$CONFIG_FILE"
+        else
+            cat "$CONFIG_FILE"
+        fi
     else
         print_error "Configuration file not found. Run 'setup' first."
         exit 1
@@ -377,7 +335,14 @@ test_server() {
         exit 1
     fi
 
-    PORT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE'))['server_port'])" 2>/dev/null)
+    # Try to read port from JSON config
+    PORT=""
+    if command -v jq > /dev/null 2>&1; then
+        PORT=$(jq -r '.server_port' "$CONFIG_FILE" 2>/dev/null)
+    else
+        # Fallback: extract port with grep/sed (POSIX compatible)
+        PORT=$(grep -o '"server_port"[[:space:]]*:[[:space:]]*[0-9]*' "$CONFIG_FILE" 2>/dev/null | grep -o '[0-9]*' | head -1)
+    fi
 
     if [ -z "$PORT" ]; then
         print_error "Could not read port from configuration"
@@ -386,13 +351,13 @@ test_server() {
 
     print_info "Testing if server is listening on port $PORT..."
 
-    if command -v netstat &> /dev/null; then
+    if command -v netstat > /dev/null 2>&1; then
         if netstat -tlnp 2>/dev/null | grep -q ":$PORT "; then
             print_info "Server is listening on port $PORT"
         else
             print_error "Server is NOT listening on port $PORT"
         fi
-    elif command -v ss &> /dev/null; then
+    elif command -v ss > /dev/null 2>&1; then
         if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
             print_info "Server is listening on port $PORT"
         else
@@ -416,9 +381,9 @@ main() {
             show_help
             ;;
         setup)
-            # Check if shadowsocks is installed
+            # Check if shadowsocks-libev is installed
             if ! check_shadowsocks_installed; then
-                print_warning "Shadowsocks is not installed"
+                print_warning "Shadowsocks-libev is not installed"
                 printf "Do you want to install it now? (y/n): "
                 read REPLY
                 case "$REPLY" in
