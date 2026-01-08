@@ -141,20 +141,22 @@ setup_config() {
     fi
 
     # Get encryption method
+    # Note: AEAD ciphers (chacha20-ietf-poly1305, aes-256-gcm, aes-128-gcm) are recommended
+    # Stream ciphers (aes-256-cfb, aes-128-cfb) do not provide integrity and authenticity
     print_info "Available encryption methods:"
-    echo "  1) chacha20-ietf-poly1305 (recommended)"
-    echo "  2) aes-256-cfb"
-    echo "  3) aes-128-cfb"
-    echo "  4) aes-256-gcm"
-    echo "  5) aes-128-gcm"
+    echo "  1) chacha20-ietf-poly1305 (AEAD, recommended)"
+    echo "  2) aes-256-gcm (AEAD, recommended)"
+    echo "  3) aes-128-gcm (AEAD)"
+    echo "  4) aes-256-cfb (stream cipher, not secure)"
+    echo "  5) aes-128-cfb (stream cipher, not secure)"
     get_input "Select encryption method (1-5) or enter custom" "${EXISTING_METHOD:-chacha20-ietf-poly1305}" "METHOD_CHOICE"
 
     case "$METHOD_CHOICE" in
         1) ENCRYPTION_METHOD="chacha20-ietf-poly1305" ;;
-        2) ENCRYPTION_METHOD="aes-256-cfb" ;;
-        3) ENCRYPTION_METHOD="aes-128-cfb" ;;
-        4) ENCRYPTION_METHOD="aes-256-gcm" ;;
-        5) ENCRYPTION_METHOD="aes-128-gcm" ;;
+        2) ENCRYPTION_METHOD="aes-256-gcm" ;;
+        3) ENCRYPTION_METHOD="aes-128-gcm" ;;
+        4) ENCRYPTION_METHOD="aes-256-cfb" ;;
+        5) ENCRYPTION_METHOD="aes-128-cfb" ;;
         *) ENCRYPTION_METHOD="$METHOD_CHOICE" ;;
     esac
 
