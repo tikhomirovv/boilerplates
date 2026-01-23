@@ -1,0 +1,42 @@
+# =============================================================================
+# Mailpit - Local SMTP testing server
+# https://github.com/axllent/mailpit
+#
+# Usage:
+#   docker compose -f docker-compose.mailpit.yml up -d
+#
+# Web UI: http://localhost:8025
+# SMTP:   localhost:1025
+#
+# Can be used with any local project for email testing
+# =============================================================================
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.28.3
+    container_name: mailpit
+    ports:
+      - '8025:8025'   # Web UI
+      - '1025:1025'   # SMTP
+    environment:
+      # Store emails persistently
+      MP_DATABASE: /data/mailpit.db
+      # Max stored messages (0 = unlimited)
+      MP_MAX_MESSAGES: 500
+      # Timezone
+      TZ: Europe/Moscow
+    volumes:
+      - mailpit_data:/data
+    restart: unless-stopped
+    # Connect to shared network for cross-project access
+    networks:
+      - mailpit-network
+
+networks:
+  # External network - can be used by other docker-compose projects
+  mailpit-network:
+    name: mailpit-network
+    driver: bridge
+
+volumes:
+  mailpit_data:
